@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Social Media Collage Creator - Pro</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Playfair+Display:ital,wght@0,700;1,700&family=Bebas+Neue&family=Roboto+Mono:wght@400;700&family=Montserrat:wght@800&family=Dancing+Script:wght@700&display=swap" rel="stylesheet">
+    
+    <!-- html2canvas -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <!-- jsPDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #09090b; touch-action: manipulation; }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; height: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #18181b; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 10px; }
+        
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        @keyframes pulse-border {
+            0% { border-color: rgba(99, 102, 241, 0.4); }
+            50% { border-color: rgba(99, 102, 241, 1); }
+            100% { border-color: rgba(99, 102, 241, 0.4); }
+        }
+        .active-cell-pulse {
+            animation: pulse-border 2s infinite ease-in-out;
+        }
+
+        /* Schachbrett-Muster für Transparenz */
+        .checkered-pattern {
+            background-image: linear-gradient(45deg, #1f1f22 25%, transparent 25%), linear-gradient(-45deg, #1f1f22 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #1f1f22 75%), linear-gradient(-45deg, transparent 75%, #1f1f22 75%);
+            background-size: 20px 20px;
+            background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+            background-color: #18181b;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="module">
+        import React, { useState, useRef, useEffect, useCallback } from 'https://esm.sh/react@18.3.1';
+        import ReactDOM from 'https://esm.sh/react-dom@18.3.1/client';
+        
+        import { 
+          Upload, Layout, Download, Image as ImageIcon, 
+          RotateCcw, Type, Palette, Grid, 
+          X, Plus, Share2, ZoomIn, Trash2,
+          Minimize, Maximize2, Sliders,
+          ArrowLeftRight, ArrowUpDown, Check, Settings2, Sparkles, Wand2,
+          Bold, Italic, Type as TypeIcon, RefreshCw, Loader2, FileText
+        } from 'https://esm.sh/lucide-react@0.263.1?deps=react@18.3.1';
+        
+        import { motion, AnimatePresence } from 'https://esm.sh/framer-motion@10.16.4?deps=react@18.3.1,react-dom@18.3.1';
+
+        const STORAGE_KEY = 'collage_pro_save_state';
+
+        const FILTERS = [
+          { name: 'Normal', value: 'none' },
+          { name: 'Vivid', value: 'saturate(1.5) contrast(1.1)' },
+          { name: 'Vintage', value: 'sepia(0.4) contrast(1.1) brightness(0.9)' },
+          { name: 'B&W', value: 'grayscale(1) contrast(1.4)' },
+          { name: 'Warm', value: 'sepia(0.3) hue-rotate(-10deg) saturate(1.2)' },
+          { name: 'Cyber', value: 'hue-rotate(190deg) contrast(1.2) saturate(1.5)' },
+        ];
+
+        const FONTS = [
+          { name: 'Modern', family: "'Inter', sans-serif" },
+          { name: 'Serif', family: "'Playfair Display', serif" },
+          { name: 'Headline', family: "'Bebas Neue', sans-serif" },
+          { name: 'Mono', family: "'Roboto Mono', monospace" },
+          { name: 'Boldest', family: "'Montserrat', sans-serif" },
+          { name: 'Script', family: "'Dancing Script', cursive" },
+        ];
+
+        const ASPECT_RATIOS = [
+          { label: 'Square (1:1)', value: 1 / 1 },
+          { label: 'IG Portrait (4:5)', value: 4 / 5 },
+          { label: 'Story/Reels/TikTok (9:16)', value: 9 / 16 },
+          { label: 'IG/FB Landscape (1.91:1)', value: 1.91 / 1 },
+          { label: 'YouTube / HD (16:9)', value: 16 / 9 },
+          { label: 'Pinterest (2:3)', value: 2 / 3 },
+          { label: 'Klassisches Foto (3:2)', value: 3 / 2 },
+          { label: 'Standard (4:3)', value: 4 / 3 },
+          { label: 'A4 Hochformat', value: 1 / 1.4142 },
+          { label: 'Facebook Cover', value: 2.7 / 1 },
+          { label: 'X Header (3:1)', value: 3 / 1 },
+        ];
+
+        // Optimierte Background Patterns mit semi-transparenten Linien
+        const PATTERNS = {
+          none: 'none',
+          dots: 'radial-gradient(circle, rgba(255,255,255,0.2) 1px, transparent 1px)',
+          lines: 'repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(255,255,255,0.05) 10px, rgba(255,255,255,0.05) 11px)',
+          grid: 'linear-gradient(to right, rgba(255,255,255,0.07) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.07) 1px, transparent 1px)'
+        };
+
+        const PRESET_LAYOUTS = [
+          { id: '1x1', category: 'Basic', type: 'grid', cols: 1, rows: 1, cells: [{ i: 0 }] },
+          { id: '2x1', category: 'Basic', type: 'grid', cols: 2, rows: 1, cells: [{ i: 0 }, { i: 1 }] },
+          { id: '1x2', category: 'Basic', type: 'grid', cols: 1, rows: 2, cells: [{ i: 0 }, { i: 1 }] },
+          { id: '2x2', category: 'Basic', type: 'grid', cols: 2, rows: 2, cells: [{ i: 0 }, { i: 1 }, { i: 2 }, { i: 3 }] },
+          { id: '3x3', category: 'Basic', type: 'grid', cols: 3, rows: 3, cells: Array.from({length:9},(_,i)=>({i})) },
+          { id: '4x4', category: 'Basic', type: 'grid', cols: 4, rows: 4, cells: Array.from({length:16},(_,i)=>({i})) },
+          { id: 'mix-3-top', category: 'Trendy', type: 'grid', cols: 2, rows: 2, cells: [{ i: 0, colSpan: 2 }, { i: 1 }, { i: 2 }] },
+          { id: 'mix-3-left', category: 'Trendy', type: 'grid', cols: 2, rows: 2, cells: [{ i: 0, rowSpan: 2 }, { i: 1 }, { i: 2 }] },
+          { id: 'mix-5-mosaic', category: 'Trendy', type: 'grid', cols: 4, rows: 4, cells: [
+              { i: 0, colSpan: 2, rowSpan: 2 }, { i: 1, colSpan: 2, rowSpan: 1 }, 
+              { i: 2, colSpan: 1, rowSpan: 1 }, { i: 3, colSpan: 1, rowSpan: 1 }, 
+              { i: 4, colSpan: 4, rowSpan: 2 }
+          ]},
+          { id: 'focus-mid', category: 'Trendy', type: 'grid', cols: 3, rows: 3, cells: [
+              { i: 0 }, { i: 1 }, { i: 2 },
+              { i: 3 }, { i: 4 }, { i: 5 },
+              { i: 6 }, { i: 7 }, { i: 8 }
+          ]}
+        ];
+
+        function SocialCollageCreator() {
+          // --- Initialisierung aus LocalStorage ---
+          const loadInitialState = (key, defaultValue) => {
+            try {
+              const saved = localStorage.getItem(`${STORAGE_KEY}_${key}`);
+              return saved ? JSON.parse(saved) : defaultValue;
+            } catch (e) {
+              return defaultValue;
+            }
+          };
+
+          const [uploads, setUploads] = useState(() => loadInitialState('uploads', []));
+          const [activeTab, setActiveTab] = useState('gallery'); 
+          const [activeTextId, setActiveTextId] = useState(null);
+          const [config, setConfig] = useState(() => loadInitialState('config', {
+            aspectRatio: 1, 
+            layoutId: '2x2', 
+            gap: 8,
+            radius: 4,
+            bgColor: '#09090b',
+            bgPattern: 'none',
+            bgPatternSize: '20px'
+          }));
+
+          const [genCols, setGenCols] = useState(3);
+          const [genRows, setGenRows] = useState(2);
+          const [customLayout, setCustomLayout] = useState(() => loadInitialState('customLayout', null));
+
+          const [cells, setCells] = useState(() => loadInitialState('cells', {}));
+          const [activeCellIndex, setActiveCellIndex] = useState(null);
+          const [texts, setTexts] = useState(() => loadInitialState('texts', []));
+          
+          const [isExporting, setIsExporting] = useState(false);
+          const [isUploading, setIsUploading] = useState(false);
+
+          // State für das Export Menü
+          const [exportOptionsOpen, setExportOptionsOpen] = useState(false);
+
+          // Custom Dialog State (ersetzt window.confirm und window.alert)
+          const [dialog, setDialog] = useState({ isOpen: false, title: '', message: '', type: 'alert', onConfirm: null });
+
+          // State für das Bild-Auswahl-Modal bei zu vielen Uploads
+          const [selectionModal, setSelectionModal] = useState({
+              isOpen: false,
+              images: [],
+              maxSelect: 0,
+              emptyIndices: [],
+              selectedIndices: []
+          });
+
+          // --- Persistence Effect ---
+          useEffect(() => {
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_uploads`, JSON.stringify(uploads));
+                localStorage.setItem(`${STORAGE_KEY}_config`, JSON.stringify(config));
+                localStorage.setItem(`${STORAGE_KEY}_cells`, JSON.stringify(cells));
+                localStorage.setItem(`${STORAGE_KEY}_texts`, JSON.stringify(texts));
+                localStorage.setItem(`${STORAGE_KEY}_customLayout`, JSON.stringify(customLayout));
+            } catch (error) {
+                console.warn('Speicherlimit des LocalStorage erreicht. Lösche ggf. einige Bilder.', error);
+            }
+          }, [uploads, config, cells, texts, customLayout]);
+
+          const currentLayout = customLayout || PRESET_LAYOUTS.find(l => l.id === config.layoutId) || PRESET_LAYOUTS[0];
+
+          const closeDialog = () => setDialog({ isOpen: false, title: '', message: '', type: 'alert', onConfirm: null });
+
+          const requestReset = () => {
+              setDialog({
+                  isOpen: true,
+                  title: 'Projekt zurücksetzen?',
+                  message: 'Möchtest du das gesamte Projekt wirklich zurücksetzen? Alle Bilder und Texte werden gelöscht und der lokale Speicher geleert. Dies kann nicht rückgängig gemacht werden.',
+                  type: 'confirm',
+                  onConfirm: () => {
+                      // States leeren
+                      setUploads([]);
+                      setCells({});
+                      setTexts([]);
+                      setCustomLayout(null);
+                      setConfig({
+                        aspectRatio: 1, 
+                        layoutId: '2x2', 
+                        gap: 8,
+                        radius: 4,
+                        bgColor: '#09090b',
+                        bgPattern: 'none',
+                        bgPatternSize: '20px'
+                      });
+                      
+                      // Spezifischen App-Storage explizit löschen
+                      localStorage.removeItem(`${STORAGE_KEY}_uploads`);
+                      localStorage.removeItem(`${STORAGE_KEY}_config`);
+                      localStorage.removeItem(`${STORAGE_KEY}_cells`);
+                      localStorage.removeItem(`${STORAGE_KEY}_texts`);
+                      localStorage.removeItem(`${STORAGE_KEY}_customLayout`);
+                      
+                      closeDialog();
+                  }
+              });
+          };
+
+          const resizeImage = (file) => {
+              return new Promise((resolve, reject) => {
+                  const reader = new FileReader();
+                  reader.onload = (e) => {
+                      const img = new window.Image();
+                      img.onload = () => {
+                          const canvas = document.createElement('canvas');
+                          const MAX_WIDTH = 1200; 
+                          const MAX_HEIGHT = 1200;
+                          let width = img.width;
+                          let height = img.height;
+
+                          if (width > height) {
+                              if (width > MAX_WIDTH) {
+                                  height *= MAX_WIDTH / width;
+                                  width = MAX_WIDTH;
+                              }
+                          } else {
+                              if (height > MAX_HEIGHT) {
+                                  width *= MAX_HEIGHT / height;
+                                  height = MAX_HEIGHT;
+                              }
+                          }
+
+                          canvas.width = width;
+                          canvas.height = height;
+                          const ctx = canvas.getContext('2d');
+                          ctx.drawImage(img, 0, 0, width, height);
+                          resolve(canvas.toDataURL('image/jpeg', 0.8));
+                      };
+                      img.onerror = reject;
+                      img.src = e.target.result;
+                  };
+                  reader.onerror = reject;
+                  reader.readAsDataURL(file);
+              });
+          };
+
+          const handleFileUpload = async (e) => {
+            const files = Array.from(e.target.files);
+            if (files.length === 0) return;
+
+            setIsUploading(true);
+            try {
+                // Bilder komprimieren
+                const processedImages = await Promise.all(files.map(file => resizeImage(file)));
+                
+                // Freie Kacheln im aktuellen Layout ermitteln
+                const emptyCellIndices = currentLayout.cells
+                    .map(c => c.i)
+                    .filter(idx => !cells[idx] || !cells[idx].image);
+
+                if (emptyCellIndices.length === 0) {
+                    // Kein Platz frei
+                    setDialog({ isOpen: true, title: 'Hinweis', message: 'Das Layout ist bereits voll. Die Bilder wurden zur Galerie hinzugefügt.', type: 'alert' });
+                    setUploads(prev => [...prev, ...processedImages]);
+                } else if (processedImages.length <= emptyCellIndices.length) {
+                    // Platz reicht aus -> Automatisch befüllen
+                    const newCells = { ...cells };
+                    processedImages.forEach((img, i) => {
+                        const targetIdx = emptyCellIndices[i];
+                        newCells[targetIdx] = { image: img, x: 0, y: 0, scale: 1, filter: 'none', rotate: 0, fit: 'contain' };
+                    });
+                    setCells(newCells);
+                    setUploads(prev => [...prev, ...processedImages]);
+                } else {
+                    // Mehr Bilder als freie Kacheln -> Modal öffnen
+                    setSelectionModal({
+                        isOpen: true,
+                        images: processedImages,
+                        maxSelect: emptyCellIndices.length,
+                        emptyIndices: emptyCellIndices,
+                        // Automatisch die ersten "X" Bilder vorauswählen, um es dem Nutzer leichter zu machen
+                        selectedIndices: Array.from({length: emptyCellIndices.length}, (_, i) => i)
+                    });
+                }
+            } catch (error) {
+                console.error("Fehler beim Verarbeiten der Bilder:", error);
+                setDialog({ isOpen: true, title: 'Fehler', message: 'Einige Bilder konnten nicht geladen werden.', type: 'alert' });
+            } finally {
+                setIsUploading(false);
+                e.target.value = ''; 
+            }
+          };
+
+          const handleSelectionConfirm = () => {
+              const newCells = { ...cells };
+              selectionModal.selectedIndices.forEach((selIdx, i) => {
+                   const targetIdx = selectionModal.emptyIndices[i];
+                   newCells[targetIdx] = { 
+                       image: selectionModal.images[selIdx], 
+                       x: 0, y: 0, scale: 1, filter: 'none', rotate: 0, fit: 'contain' 
+                   };
+              });
+              setCells(newCells);
+              // Alle in die Galerie laden
+              setUploads(prev => [...prev, ...selectionModal.images]);
+              closeSelectionModal();
+          };
+
+          const closeSelectionModal = () => {
+              setSelectionModal({ isOpen: false, images: [], maxSelect: 0, emptyIndices: [], selectedIndices: [] });
+          };
+
+          const generateCustomGrid = () => {
+              const newLayout = {
+                  id: `custom-${genCols}x${genRows}`,
+                  category: 'Custom',
+                  type: 'grid',
+                  cols: genCols,
+                  rows: genRows,
+                  cells: Array.from({ length: genCols * genRows }, (_, i) => ({ i }))
+              };
+              setCustomLayout(newLayout);
+              setConfig(prev => ({ ...prev, layoutId: newLayout.id }));
+          };
+
+          const selectPreset = (id) => {
+              setCustomLayout(null);
+              setConfig(prev => ({ ...prev, layoutId: id }));
+          };
+
+          const handleGalleryItemClick = (img) => {
+              const targetIdx = activeCellIndex !== null ? activeCellIndex : 0;
+              updateCell(targetIdx, { 
+                image: img, x: 0, y: 0, scale: 1, filter: 'none', rotate: 0, fit: 'contain' 
+              });
+              setActiveCellIndex(targetIdx);
+          };
+
+          const handleDragStart = (e, imgUrl) => {
+            e.dataTransfer.setData('imageUrl', imgUrl);
+          };
+
+          const handleDrop = (e, index) => {
+            e.preventDefault();
+            const sourceIndex = e.dataTransfer.getData('sourceIndex');
+            const imageUrl = e.dataTransfer.getData('imageUrl');
+
+            if (sourceIndex && sourceIndex !== "") {
+                const srcIdx = parseInt(sourceIndex, 10);
+                if (srcIdx === index) return; 
+                setCells(prev => {
+                    const newCells = { ...prev };
+                    const sourceData = newCells[srcIdx];
+                    const targetData = newCells[index]; 
+                    newCells[index] = sourceData;
+                    if (targetData) newCells[srcIdx] = targetData;
+                    else delete newCells[srcIdx];
+                    return newCells;
+                });
+                setActiveCellIndex(index);
+            } else if (imageUrl) {
+              updateCell(index, { 
+                image: imageUrl, x: 0, y: 0, scale: 1, filter: 'none', rotate: 0, fit: 'contain' 
+              });
+              setActiveCellIndex(index);
+            }
+          };
+
+          const removeUpload = (idx) => {
+            setUploads(prev => prev.filter((_, i) => i !== idx));
+          };
+
+          const removeImageFromCell = (idx) => {
+            updateCell(idx, { image: null, filter: 'none', scale: 1, rotate: 0, x: 0, y: 0 });
+          };
+
+          const updateCell = (index, newData) => {
+            setCells(prev => ({
+              ...prev,
+              [index]: { ...(prev[index] || {}), ...newData }
+            }));
+          };
+
+          // Erweiterte Export-Funktion inklusive PDF
+          const handleExport = async (format = 'png') => {
+            setIsExporting(true);
+            try {
+              const element = document.getElementById('collage-canvas');
+              const prevActive = activeCellIndex;
+              const prevActiveText = activeTextId;
+              
+              setActiveCellIndex(null);
+              setActiveTextId(null);
+              
+              await new Promise(r => setTimeout(r, 400));
+
+              const canvas = await window.html2canvas(element, {
+                scale: 3, 
+                useCORS: true,
+                backgroundColor: config.bgColor === 'transparent' ? null : config.bgColor,
+                logging: false,
+              });
+
+              if (format === 'pdf') {
+                  const { jsPDF } = window.jspdf;
+                  const imgData = canvas.toDataURL('image/png');
+                  
+                  // PDF Orientierung basierend auf Aspektverhältnis wählen
+                  const orientation = config.aspectRatio > 1 ? 'landscape' : 'portrait';
+                  const pdf = new jsPDF({
+                      orientation: orientation,
+                      unit: 'px',
+                      format: [canvas.width / 3, canvas.height / 3] // Skalierung korrigieren
+                  });
+                  
+                  pdf.addImage(imgData, 'PNG', 0, 0, canvas.width / 3, canvas.height / 3);
+                  pdf.save(`collage-${Date.now()}.pdf`);
+              } else {
+                  const mimeType = format === 'jpg' ? 'image/jpeg' : `image/${format}`;
+                  const link = document.createElement('a');
+                  link.download = `collage-${Date.now()}.${format === 'jpg' ? 'jpg' : format}`;
+                  link.href = canvas.toDataURL(mimeType, 1.0);
+                  link.click();
+              }
+
+              setActiveCellIndex(prevActive);
+              setActiveTextId(prevActiveText);
+            } catch (err) {
+              console.error(err);
+              setDialog({ isOpen: true, title: 'Fehler', message: 'Fehler beim Exportieren.', type: 'alert' });
+            } finally {
+              setIsExporting(false);
+            }
+          };
+
+          const addText = () => {
+            const newText = {
+              id: Date.now(),
+              content: 'TEXT HIER',
+              x: 50, y: 50,
+              color: '#ffffff',
+              fontSize: 32,
+              fontFamily: "'Inter', sans-serif",
+              fontWeight: 'bold',
+              fontStyle: 'normal'
+            };
+            setTexts([...texts, newText]);
+            setActiveTextId(newText.id);
+            setActiveCellIndex(null);
+            setActiveTab('text');
+          };
+
+          const updateText = (id, newData) => {
+              setTexts(prev => prev.map(t => t.id === id ? { ...t, ...newData } : t));
+          };
+
+          const activeText = texts.find(t => t.id === activeTextId);
+
+          // --- UI HELPERS ---
+
+          const renderMiniPreview = (layout) => {
+              return React.createElement('div', { 
+                  className: "w-full h-full grid gap-[1px] border border-zinc-800 rounded-sm overflow-hidden bg-zinc-900",
+                  style: { gridTemplateColumns: `repeat(${layout.cols}, 1fr)`, gridTemplateRows: `repeat(${layout.rows}, 1fr)` }
+              }, layout.cells.map((cell, i) => 
+                  React.createElement('div', { 
+                      key: i, className: "bg-zinc-700",
+                      style: { gridColumn: cell.colSpan ? `span ${cell.colSpan}` : 'span 1', gridRow: cell.rowSpan ? `span ${cell.rowSpan}` : 'span 1' }
+                  })
+              ));
+          };
+
+          const renderCellContent = (idx, style = {}, customClasses = "") => {
+              const cell = cells[idx] || {};
+              const isActive = activeCellIndex === idx;
+
+              return (
+                React.createElement('div', {
+                    key: idx,
+                    onDrop: (e) => handleDrop(e, idx),
+                    onDragOver: (e) => e.preventDefault(),
+                    onClick: (e) => { e.stopPropagation(); setActiveCellIndex(idx); setActiveTextId(null); },
+                    draggable: !!cell.image,
+                    onDragStart: (e) => { if (cell.image) { e.dataTransfer.setData('sourceIndex', idx.toString()); e.dataTransfer.effectAllowed = 'move'; } },
+                    className: `relative overflow-hidden transition-all group ${customClasses} ${
+                        !cell.image ? 'bg-zinc-900/50 border border-dashed border-zinc-800' : 'bg-zinc-950'
+                    } ${isActive ? 'ring-2 ring-indigo-500 z-30 active-cell-pulse shadow-xl' : ''}`,
+                    style: { borderRadius: `${config.radius}px`, ...style }
+                }, [
+                    !cell.image && React.createElement('div', { key: 'empty', className: "absolute inset-0 flex items-center justify-center text-zinc-700 pointer-events-none" }, React.createElement(Plus, { size: 28 })),
+                    cell.image && React.createElement('div', { 
+                        key: 'img', className: "w-full h-full origin-center",
+                        style: { transform: `translate(${cell.x || 0}px, ${cell.y || 0}px) scale(${cell.scale || 1}) rotate(${cell.rotate || 0}deg)`, filter: cell.filter || 'none', pointerEvents: 'none' }
+                    }, React.createElement('img', { src: cell.image, alt: "", className: "w-full h-full select-none block", style: { objectFit: cell.fit || 'contain', width: '100%', height: '100%' } })),
+                    isActive && cell.image && React.createElement('button', { key: 'del', onClick: (e) => { e.stopPropagation(); removeImageFromCell(idx); }, className: "absolute top-2 right-2 bg-red-600 text-white p-2 rounded-full shadow-lg z-40" }, React.createElement(X, { size: 16 }))
+                ])
+              );
+          };
+
+          const renderGalleryContent = () => {
+              return React.createElement(React.Fragment, null, [
+                  React.createElement('div', { className: "mb-4 flex gap-2" }, [
+                     React.createElement('label', { className: "flex flex-col items-center justify-center flex-1 h-20 border-2 border-dashed border-zinc-800 rounded-xl hover:bg-zinc-900 transition cursor-pointer active:bg-zinc-800" }, [
+                        isUploading ? React.createElement(Loader2, { className: "w-5 h-5 text-indigo-500 mb-1 animate-spin" }) : React.createElement(Upload, { className: "w-5 h-5 text-zinc-500 mb-1" }),
+                        React.createElement('span', { className: `text-[10px] font-bold uppercase ${isUploading ? 'text-indigo-400' : 'text-zinc-500'}` }, isUploading ? "Lädt..." : "Upload"),
+                        React.createElement('input', { type: "file", multiple: true, accept: "image/*", className: "hidden", onChange: handleFileUpload })
+                     ]),
+                     React.createElement('button', { 
+                        onClick: requestReset,
+                        className: "flex flex-col items-center justify-center w-20 border-2 border-zinc-800 rounded-xl hover:bg-red-900/20 hover:border-red-900 transition"
+                     }, [
+                        React.createElement(RefreshCw, { className: "w-5 h-5 text-zinc-500 mb-1" }),
+                        React.createElement('span', { className: "text-[10px] text-zinc-500 font-bold uppercase" }, "Reset")
+                     ])
+                  ]),
+                  uploads.length === 0 ? React.createElement('div', { className: "py-10 text-center text-zinc-600 text-sm" }, "Keine Bilder") :
+                  React.createElement('div', { className: "grid grid-cols-2 gap-3" }, 
+                    uploads.map((img, idx) => 
+                      React.createElement(motion.div, { 
+                        layout: true, key: idx, draggable: true,
+                        onDragStart: (e) => handleDragStart(e, img),
+                        onClick: (e) => { e.stopPropagation(); handleGalleryItemClick(img); },
+                        className: `aspect-square rounded-lg overflow-hidden border border-zinc-800 cursor-pointer active:scale-95 transition relative group`
+                      }, [
+                        React.createElement('img', { src: img, alt: "gal", className: "w-full h-full object-cover" }),
+                        React.createElement('button', { onClick: (e) => { e.stopPropagation(); removeUpload(idx); }, className: "absolute top-1 right-1 bg-red-600 text-white p-1.5 rounded-full md:opacity-0 md:group-hover:opacity-100 shadow-md z-10" }, React.createElement(X, { size: 10 })),
+                        activeCellIndex !== null && React.createElement('div', { className: "absolute inset-0 bg-indigo-500/20 flex items-center justify-center" }, React.createElement(Plus, { size: 24, className: "text-white" }))
+                      ])
+                    )
+                  )
+              ]);
+          };
+
+          return (
+            React.createElement('div', { 
+              className: "flex h-screen bg-[#09090b] text-zinc-100 font-sans overflow-hidden flex-col md:flex-row relative",
+              onClick: () => { setActiveCellIndex(null); setActiveTextId(null); }
+            }, [
+              /* SIDEBAR */
+              React.createElement('div', { className: "hidden md:flex w-80 flex-col border-r border-zinc-800 bg-zinc-950 z-20", onClick: (e) => e.stopPropagation() }, [
+                React.createElement('div', { className: "p-4 border-b border-zinc-800 flex items-center justify-between" }, [
+                  React.createElement('h1', { className: "font-black text-xl tracking-tighter text-indigo-400" }, "COLLAGE PRO"),
+                ]),
+                React.createElement('div', { className: "flex-1 overflow-y-auto p-4 custom-scrollbar" }, renderGalleryContent()),
+                React.createElement('div', { className: "p-4 border-t border-zinc-800" }, React.createElement('button', { onClick: () => setExportOptionsOpen(true), disabled: isExporting, className: "w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold transition shadow-xl" }, isExporting ? 'Rendert...' : "HD EXPORT"))
+              ]),
+
+              /* MAIN CONTENT */
+              React.createElement('div', { className: "flex-1 flex flex-col relative" }, [
+                /* MOBILE HEADER */
+                React.createElement('div', { className: "md:hidden h-12 border-b border-zinc-800 flex items-center justify-between px-4 bg-zinc-950 z-30 shrink-0", onClick: (e) => e.stopPropagation() }, [
+                    React.createElement('h1', { className: "font-black text-sm tracking-tighter text-indigo-400" }, "COLLAGE PRO"),
+                    React.createElement('button', { onClick: () => setExportOptionsOpen(true), disabled: isExporting, className: "bg-indigo-600 text-white px-4 py-1.5 rounded-lg text-[10px] font-black uppercase" }, isExporting ? '...' : 'Export')
+                ]),
+
+                /* CANVAS Wrapper */
+                React.createElement('div', { className: `flex-1 overflow-hidden flex items-center justify-center p-6 md:p-12 relative touch-pan-x touch-pan-y ${config.bgColor === 'transparent' ? 'checkered-pattern' : ''}` }, 
+                  React.createElement('div', {
+                    id: "collage-canvas",
+                    onClick: (e) => e.stopPropagation(),
+                    className: "relative shadow-2xl transition-all duration-500 ease-out bg-zinc-950",
+                    style: { 
+                        aspectRatio: `${config.aspectRatio}`, 
+                        height: config.aspectRatio > 1 ? 'auto' : '100%', 
+                        width: config.aspectRatio > 1 ? '100%' : 'auto', 
+                        maxHeight: '100%', 
+                        maxWidth: '100%', 
+                        backgroundColor: config.bgColor === 'transparent' ? 'transparent' : config.bgColor, 
+                        backgroundImage: config.bgPattern !== 'none' ? PATTERNS[config.bgPattern] : 'none', 
+                        backgroundSize: config.bgPatternSize,
+                        backgroundRepeat: 'repeat',
+                        padding: `${config.gap}px` 
+                    }
+                  }, [
+                    React.createElement('div', { className: "w-full h-full grid", style: { gridTemplateColumns: `repeat(${currentLayout.cols}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${currentLayout.rows}, minmax(0, 1fr))`, gap: `${config.gap}px` } }, 
+                        currentLayout.cells.map((cellDef) => renderCellContent(cellDef.i, { gridColumn: cellDef.colSpan ? `span ${cellDef.colSpan}` : 'span 1', gridRow: cellDef.rowSpan ? `span ${cellDef.rowSpan}` : 'span 1' }))
+                    ),
+                    texts.map((text) => {
+                       const isTActive = activeTextId === text.id;
+                       return React.createElement(motion.div, {
+                          drag: true, dragMomentum: false, key: text.id,
+                          onClick: (e) => { e.stopPropagation(); setActiveTextId(text.id); setActiveCellIndex(null); },
+                          className: `absolute cursor-move border rounded-lg px-3 py-1.5 z-50 transition-colors ${isTActive ? 'border-indigo-500 bg-indigo-500/10' : 'border-transparent'}`,
+                          style: { top: text.y, left: text.x, color: text.color, fontSize: `${text.fontSize}px`, fontFamily: text.fontFamily, fontWeight: text.fontWeight, fontStyle: text.fontStyle, textShadow: '0 2px 8px rgba(0,0,0,0.8)' }
+                       }, [
+                         React.createElement('div', { contentEditable: true, suppressContentEditableWarning: true, className: "outline-none", onFocus: (e) => { e.stopPropagation(); setActiveTextId(text.id); setActiveCellIndex(null); } }, text.content),
+                         React.createElement('button', { onClick: (e) => { e.stopPropagation(); setTexts(texts.filter(t => t.id !== text.id)); setActiveTextId(null); }, className: `absolute -top-3 -right-3 bg-red-600 text-white rounded-full p-1 shadow-xl ${isTActive ? 'scale-100' : 'scale-0'}` }, React.createElement(X, { size: 10 }))
+                       ])
+                    })
+                  ])
+                ),
+
+                /* TABS */
+                React.createElement('div', { className: "h-14 border-t border-zinc-800 bg-zinc-950 flex items-center justify-start md:justify-center gap-1 px-2 overflow-x-auto no-scrollbar shrink-0", onClick: (e) => e.stopPropagation() }, 
+                  [
+                    { id: 'gallery', icon: ImageIcon, label: 'Galerie', m: true },
+                    { id: 'layout', icon: Layout, label: 'Layout' },
+                    { id: 'adjust', icon: Sliders, label: 'Edit' },
+                    { id: 'style', icon: Palette, label: 'Design' },
+                    { id: 'text', icon: Type, label: 'Text' },
+                  ].map(tab => 
+                    React.createElement('button', { key: tab.id, onClick: (e) => { e.stopPropagation(); setActiveTab(tab.id); }, className: `flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold transition whitespace-nowrap uppercase ${tab.m ? 'md:hidden' : ''} ${activeTab === tab.id ? 'bg-indigo-600 text-white' : 'text-zinc-500'}` }, [React.createElement(tab.icon, { size: 14, key: "i" }), tab.label])
+                  )
+                ),
+
+                /* TOOL PANEL */
+                React.createElement('div', { className: "h-72 border-t border-zinc-900 bg-zinc-950 p-4 md:p-6 overflow-y-auto custom-scrollbar shrink-0", onClick: (e) => e.stopPropagation() }, 
+                  React.createElement('div', { className: "max-w-3xl mx-auto" }, [
+                    
+                    activeTab === 'gallery' && renderGalleryContent(),
+
+                    activeTab === 'layout' && React.createElement('div', { className: "space-y-8" }, [
+                        ['Basic', 'Trendy'].map(cat => (
+                            React.createElement('div', { key: cat }, [
+                               React.createElement('h3', { className: "text-[10px] font-black text-zinc-600 uppercase mb-3 tracking-widest" }, cat + " Presets"),
+                               React.createElement('div', { className: "grid grid-cols-5 md:grid-cols-10 gap-2" }, 
+                                   PRESET_LAYOUTS.filter(l => l.category === cat).map(l => 
+                                      React.createElement('button', { key: l.id, onClick: (e) => { e.stopPropagation(); selectPreset(l.id); }, className: `aspect-square p-1.5 border rounded-lg transition ${config.layoutId === l.id && !customLayout ? 'border-indigo-500 bg-zinc-900 ring-2 ring-indigo-500/20' : 'border-zinc-800'}` }, renderMiniPreview(l))
+                                   )
+                               )
+                            ])
+                        )),
+                        React.createElement('div', null, [
+                           React.createElement('h3', { className: "text-[10px] font-black text-zinc-600 uppercase mb-3" }, "Formate"),
+                           React.createElement('div', { className: "flex gap-2 flex-wrap" }, ASPECT_RATIOS.map(ar => React.createElement('button', { key: ar.label, onClick: (e) => { e.stopPropagation(); setConfig({...config, aspectRatio: ar.value}); }, className: `px-3 py-1.5 rounded-lg text-[10px] font-bold border transition ${config.aspectRatio === ar.value ? 'border-indigo-500 bg-indigo-500/10 text-indigo-400' : 'border-zinc-800 text-zinc-500'}` }, ar.label)))
+                        ]),
+                        React.createElement('div', { className: "bg-zinc-900/50 p-4 rounded-2xl border border-zinc-800" }, [
+                            React.createElement('div', { className: "flex items-center gap-2 mb-4" }, [React.createElement(Sparkles, { size: 14, className: "text-indigo-400" }), React.createElement('h3', { className: "text-[10px] font-black text-zinc-400 uppercase tracking-widest" }, "Grid Studio")]),
+                            React.createElement('div', { className: "flex items-center gap-6" }, [
+                                [['Cols', genCols, setGenCols], ['Rows', genRows, setGenRows]].map(([label, val, set]) => 
+                                    React.createElement('div', { key: label, className: "flex-1" }, [
+                                        React.createElement('div', { className: "flex justify-between text-[10px] text-zinc-500 font-bold mb-2" }, [React.createElement('span', null, label), React.createElement('span', null, val)]),
+                                        React.createElement('input', { type: "range", min: "1", max: "12", value: val, onChange: (e) => set(parseInt(e.target.value)), className: "w-full accent-indigo-500 h-1 bg-zinc-800 rounded-lg appearance-none" })
+                                    ])
+                                ),
+                                React.createElement('button', { onClick: generateCustomGrid, className: "bg-indigo-600 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase shadow-lg active:scale-95 transition" }, "Generate")
+                            ])
+                        ])
+                    ]),
+
+                    activeTab === 'adjust' && React.createElement('div', { className: "space-y-6" }, [
+                        (activeCellIndex === null || !cells[activeCellIndex]?.image) ? React.createElement('div', { className: "py-10 text-center text-zinc-600 text-sm font-bold uppercase" }, "Wähle ein Bild aus") :
+                        React.createElement('div', { className: "grid grid-cols-1 md:grid-cols-2 gap-6" }, [
+                            React.createElement('div', { className: "space-y-4" }, [
+                                React.createElement('div', { className: "flex gap-2 p-1 bg-zinc-900 rounded-xl" }, ['contain', 'cover'].map(mode => React.createElement('button', { key: mode, onClick: (e) => { e.stopPropagation(); updateCell(activeCellIndex, { fit: mode }); }, className: `flex-1 py-2 text-[10px] font-bold rounded-lg uppercase ${cells[activeCellIndex]?.fit === mode ? 'bg-indigo-600 text-white' : 'text-zinc-500'}` }, mode === 'contain' ? 'Anpassen' : 'Füllen'))),
+                                [['x', 'H-Position'], ['y', 'V-Position']].map(([ax, l]) => React.createElement('div', { key: ax }, [React.createElement('div', { className: "flex justify-between text-[10px] text-zinc-500 uppercase mb-1" }, [React.createElement('span', null, l), React.createElement('span', null, cells[activeCellIndex][ax] || 0)]), React.createElement('input', { type: "range", min: "-200", max: "200", value: cells[activeCellIndex]?.[ax] || 0, onChange: (e) => { e.stopPropagation(); updateCell(activeCellIndex, { [ax]: parseInt(e.target.value) }); }, className: "w-full accent-indigo-500 h-1 bg-zinc-800 rounded-lg appearance-none" })])),
+                                React.createElement('div', null, [React.createElement('div', { className: "flex justify-between text-[10px] text-zinc-500 uppercase mb-1" }, [React.createElement('span', null, "Zoom"), React.createElement('span', null, Math.round((cells[activeCellIndex]?.scale || 1) * 100) + "%")]), React.createElement('input', { type: "range", min: "1", max: "6", step: "0.1", value: cells[activeCellIndex]?.scale || 1, onChange: (e) => { e.stopPropagation(); updateCell(activeCellIndex, { scale: parseFloat(e.target.value) }); }, className: "w-full accent-indigo-500 h-1 bg-zinc-800 rounded-lg appearance-none" })])
+                            ]),
+                            React.createElement('div', null, [
+                                React.createElement('label', { className: "text-[10px] text-zinc-600 font-bold uppercase block mb-2" }, "Filter"),
+                                React.createElement('div', { className: "flex gap-3 overflow-x-auto pb-2 no-scrollbar" }, FILTERS.map(f => React.createElement('button', { key: f.name, onClick: (e) => { e.stopPropagation(); updateCell(activeCellIndex, { filter: f.value }); }, className: "flex flex-col items-center gap-1 shrink-0" }, [React.createElement('div', { className: `w-14 h-14 rounded-xl border-2 transition ${cells[activeCellIndex]?.filter === f.value ? 'border-indigo-500 scale-105' : 'border-zinc-800'}` }, React.createElement('div', { className: "w-full h-full bg-zinc-800 rounded-lg overflow-hidden", style: { filter: f.value } }, cells[activeCellIndex]?.image && React.createElement('img', { src: cells[activeCellIndex].image, className: "w-full h-full object-cover" }))), React.createElement('span', { className: "text-[9px] font-bold text-zinc-500" }, f.name)])))
+                            ])
+                        ])
+                    ]),
+
+                    activeTab === 'style' && React.createElement('div', { className: "grid grid-cols-1 md:grid-cols-2 gap-8" }, [
+                        React.createElement('div', { className: "space-y-4" }, [
+                            React.createElement('h3', { className: "text-xs font-bold text-zinc-400 uppercase" }, "Abstände"),
+                            [['gap', 'Zwischenraum', 60], ['radius', 'Rundung', 50]].map(([key, label, max]) => React.createElement('div', { key: key }, [React.createElement('div', { className: "flex justify-between text-[10px] text-zinc-500 uppercase mb-1" }, [React.createElement('span', null, label), React.createElement('span', null, config[key] + "px")]), React.createElement('input', { type: "range", min: "0", max: max, value: config[key], onChange: (e) => { e.stopPropagation(); setConfig({...config, [key]: parseInt(e.target.value) }); }, className: "w-full accent-indigo-500 h-1 bg-zinc-800 rounded-lg appearance-none" })])),
+                            React.createElement('div', { className: "pt-2" }, [
+                                React.createElement('div', { className: "flex justify-between text-[10px] text-zinc-500 font-bold mb-1 uppercase" }, [React.createElement('span', null, "Muster-Skalierung"), React.createElement('span', null, config.bgPatternSize)]),
+                                React.createElement('input', { type: "range", min: "10", max: "100", value: parseInt(config.bgPatternSize), onChange: (e) => { e.stopPropagation(); setConfig({...config, bgPatternSize: `${e.target.value}px` }); }, className: "w-full accent-indigo-500 h-1 bg-zinc-800 rounded-lg appearance-none" })
+                            ])
+                        ]),
+                        React.createElement('div', { className: "space-y-4" }, [
+                            React.createElement('h3', { className: "text-xs font-bold text-zinc-400 uppercase" }, "Hintergrund"),
+                            React.createElement('div', { className: "flex flex-wrap gap-2" }, ['transparent', '#09090b', '#27272a', '#ffffff', '#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6'].map(color => React.createElement('button', { key: color, onClick: (e) => { e.stopPropagation(); setConfig({...config, bgColor: color}); }, className: `w-8 h-8 rounded-full border-2 ${config.bgColor === color ? 'border-white scale-110' : 'border-zinc-800'} ${color === 'transparent' ? 'checkered-pattern' : ''}`, style: color !== 'transparent' ? { backgroundColor: color } : {} }))),
+                            React.createElement('div', { className: "flex gap-2 overflow-x-auto no-scrollbar" }, Object.keys(PATTERNS).map(pat => React.createElement('button', { key: pat, onClick: (e) => { e.stopPropagation(); setConfig({...config, bgPattern: pat}); }, className: `px-4 py-1.5 rounded-lg text-[10px] font-bold border transition uppercase whitespace-nowrap ${config.bgPattern === pat ? 'bg-indigo-600 text-white' : 'border-zinc-800 text-zinc-500'}` }, pat)))
+                        ])
+                    ]),
+
+                    activeTab === 'text' && React.createElement('div', { className: "space-y-6" }, [
+                        !activeText ? React.createElement('div', { className: "text-center py-6" }, [
+                            React.createElement('button', { onClick: (e) => { e.stopPropagation(); addText(); }, className: "bg-indigo-600 text-white px-8 py-4 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-indigo-500/20 active:scale-95 transition" }, "Neuen Text erstellen"),
+                            React.createElement('p', { className: "text-[10px] text-zinc-600 font-bold uppercase mt-6 tracking-widest" }, "Wähle einen Text auf dem Canvas aus, um ihn zu bearbeiten")
+                        ]) : 
+                        React.createElement('div', { className: "animate-in slide-in-from-bottom-2 fade-in duration-300" }, [
+                            React.createElement('div', { className: "flex items-center justify-between mb-4 border-b border-zinc-800 pb-2" }, [
+                                React.createElement('h3', { className: "text-xs font-bold text-indigo-400 uppercase tracking-widest" }, "Typography Studio"),
+                                React.createElement('button', { onClick: (e) => { e.stopPropagation(); setActiveTextId(null); }, className: "text-[10px] text-zinc-500 uppercase font-bold" }, "Fertig")
+                            ]),
+                            React.createElement('div', { className: "grid grid-cols-1 md:grid-cols-3 gap-6" }, [
+                                React.createElement('div', { className: "space-y-4" }, [
+                                    React.createElement('label', { className: "text-[10px] text-zinc-600 font-black uppercase" }, "Schriftart"),
+                                    React.createElement('div', { className: "grid grid-cols-2 gap-2" }, FONTS.map(f => 
+                                        React.createElement('button', { key: f.name, onClick: (e) => { e.stopPropagation(); updateText(activeTextId, { fontFamily: f.family }); }, className: `px-3 py-2 rounded-lg border text-[10px] transition ${activeText.fontFamily === f.family ? 'border-indigo-500 bg-indigo-500/10 text-indigo-400' : 'border-zinc-800 text-zinc-500'}` }, f.name)
+                                    ))
+                                ]),
+                                React.createElement('div', { className: "space-y-4" }, [
+                                    React.createElement('label', { className: "text-[10px] text-zinc-600 font-black uppercase" }, "Formatierung"),
+                                    React.createElement('div', { className: "flex gap-2" }, [
+                                        React.createElement('button', { onClick: (e) => { e.stopPropagation(); updateText(activeTextId, { fontWeight: activeText.fontWeight === 'bold' ? 'normal' : 'bold' }); }, className: `flex-1 py-2 rounded-xl border flex items-center justify-center transition ${activeText.fontWeight === 'bold' ? 'bg-indigo-600 text-white border-indigo-600' : 'border-zinc-800 text-zinc-500'}` }, React.createElement(Bold, { size: 16 })),
+                                        React.createElement('button', { onClick: (e) => { e.stopPropagation(); updateText(activeTextId, { fontStyle: activeText.fontStyle === 'italic' ? 'normal' : 'italic' }); }, className: `flex-1 py-2 rounded-xl border flex items-center justify-center transition ${activeText.fontStyle === 'italic' ? 'bg-indigo-600 text-white border-indigo-600' : 'border-zinc-800 text-zinc-500'}` }, React.createElement(Italic, { size: 16 })),
+                                        React.createElement('div', { className: "flex-1 relative rounded-xl border border-zinc-800 bg-zinc-900 overflow-hidden" }, [
+                                            React.createElement('input', { type: "color", value: activeText.color, onChange: (e) => { e.stopPropagation(); updateText(activeTextId, { color: e.target.value }); }, className: "absolute inset-0 w-full h-full opacity-0 cursor-pointer" }),
+                                            React.createElement('div', { className: "w-full h-full flex items-center justify-center", style: { color: activeText.color } }, React.createElement(Palette, { size: 16 }))
+                                        ])
+                                    ]),
+                                    React.createElement('div', null, [
+                                        React.createElement('div', { className: "flex justify-between text-[10px] text-zinc-500 font-bold mb-1 uppercase" }, [React.createElement('span', null, "Größe"), React.createElement('span', null, activeText.fontSize + "px")]),
+                                        React.createElement('input', { type: "range", min: "12", max: "120", value: activeText.fontSize, onChange: (e) => { e.stopPropagation(); updateText(activeTextId, { fontSize: parseInt(e.target.value) }); }, className: "w-full accent-indigo-500 h-1 bg-zinc-800 rounded-lg appearance-none" })
+                                    ])
+                                ]),
+                                React.createElement('div', { className: "flex items-end pb-1" }, 
+                                    React.createElement('button', { onClick: (e) => { e.stopPropagation(); addText(); }, className: "w-full bg-zinc-800 text-zinc-400 py-3 rounded-xl text-[10px] font-black uppercase flex items-center justify-center gap-2" }, [React.createElement(Plus, { size: 12 }), "Neuer Text"])
+                                )
+                            ])
+                        ])
+                    ])
+                  ])
+                )
+              ]),
+
+              /* Modal für Export-Optionen */
+              exportOptionsOpen && React.createElement('div', {
+                  className: "fixed inset-0 z-[120] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+              }, React.createElement('div', {
+                  className: "bg-zinc-900 border border-zinc-800 rounded-2xl p-6 max-w-sm w-full flex flex-col shadow-2xl"
+              }, [
+                  React.createElement('h3', { className: "text-lg font-black text-white mb-2" }, "Exportieren als..."),
+                  React.createElement('p', { className: "text-zinc-400 text-sm mb-6" }, "Wähle das Format für deine Collage aus. Für einen transparenten Hintergrund wähle unbedingt PNG."),
+                  React.createElement('div', { className: "flex flex-col gap-3" }, [
+                      React.createElement('button', {
+                          onClick: () => { setExportOptionsOpen(false); handleExport('png'); },
+                          className: "w-full bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-3 rounded-xl text-sm font-bold shadow-lg transition flex items-center justify-between"
+                      }, [React.createElement('span', null, "PNG (Transparenz unterstützt)"), React.createElement(ImageIcon, { size: 16 })]),
+                      React.createElement('button', {
+                          onClick: () => { setExportOptionsOpen(false); handleExport('pdf'); },
+                          className: "w-full bg-indigo-700 hover:bg-indigo-600 text-white px-4 py-3 rounded-xl text-sm font-bold shadow-lg transition flex items-center justify-between"
+                      }, [React.createElement('span', null, "PDF (Dokumenten-Format)"), React.createElement(FileText, { size: 16 })]),
+                      React.createElement('button', {
+                          onClick: () => { setExportOptionsOpen(false); handleExport('jpg'); },
+                          className: "w-full bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-3 rounded-xl text-sm font-bold transition flex items-center justify-between"
+                      }, [React.createElement('span', null, "JPG (Kompakt)"), React.createElement(ImageIcon, { size: 16 })]),
+                      React.createElement('button', {
+                          onClick: () => { setExportOptionsOpen(false); handleExport('webp'); },
+                          className: "w-full bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-3 rounded-xl text-sm font-bold transition flex items-center justify-between"
+                      }, [React.createElement('span', null, "WebP (Modern)"), React.createElement(Download, { size: 16 })])
+                  ]),
+                  React.createElement('button', {
+                      onClick: () => setExportOptionsOpen(false),
+                      className: "mt-4 px-4 py-2 w-full rounded-lg text-sm font-bold text-zinc-500 hover:text-white transition"
+                  }, "Abbrechen")
+              ])),
+
+              /* Modal für Bildauswahl */
+              selectionModal.isOpen && React.createElement('div', {
+                  className: "fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+              }, React.createElement('div', {
+                  className: "bg-zinc-900 border border-zinc-800 rounded-2xl p-6 max-w-lg w-full flex flex-col max-h-[90vh]"
+              }, [
+                  React.createElement('h3', { className: "text-lg font-black text-white mb-2" }, "Bilder in Layout laden"),
+                  React.createElement('p', { className: "text-zinc-400 text-sm mb-4" }, `Du hast ${selectionModal.images.length} Bilder hochgeladen, aber es gibt nur noch ${selectionModal.maxSelect} freie Kacheln. Welche möchtest du einfügen?`),
+                  React.createElement('div', { className: "grid grid-cols-3 gap-3 mb-6 overflow-y-auto custom-scrollbar flex-shrink" }, 
+                      selectionModal.images.map((img, idx) => {
+                          const isSelected = selectionModal.selectedIndices.includes(idx);
+                          return React.createElement('div', {
+                              key: idx,
+                              onClick: () => {
+                                  if (isSelected) {
+                                      setSelectionModal(prev => ({ ...prev, selectedIndices: prev.selectedIndices.filter(i => i !== idx) }));
+                                  } else if (selectionModal.selectedIndices.length < selectionModal.maxSelect) {
+                                      setSelectionModal(prev => ({ ...prev, selectedIndices: [...prev.selectedIndices, idx] }));
+                                  }
+                              },
+                              className: `aspect-square rounded-lg overflow-hidden cursor-pointer border-2 transition relative ${isSelected ? 'border-indigo-500 scale-95 opacity-100' : 'border-transparent opacity-60 hover:opacity-100'}`
+                          }, [
+                              React.createElement('img', { src: img, className: "w-full h-full object-cover" }),
+                              isSelected && React.createElement('div', { className: "absolute inset-0 flex items-center justify-center bg-indigo-500/30" }, React.createElement(Check, { className: "text-white drop-shadow-md", size: 32 }))
+                          ]);
+                      })
+                  ),
+                  React.createElement('div', { className: "flex justify-end gap-3 mt-auto" }, [
+                      React.createElement('button', {
+                          onClick: () => {
+                              setUploads(prev => [...prev, ...selectionModal.images]);
+                              closeSelectionModal();
+                          },
+                          className: "px-4 py-2 rounded-lg text-sm font-bold text-zinc-400 hover:text-white transition"
+                      }, "Nur zur Galerie"),
+                      React.createElement('button', {
+                          onClick: handleSelectionConfirm,
+                          disabled: selectionModal.selectedIndices.length === 0,
+                          className: "bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white px-6 py-2 rounded-xl text-sm font-bold shadow-lg transition"
+                      }, `${selectionModal.selectedIndices.length} Einfügen`)
+                  ])
+              ])),
+
+              /* Generic Dialog */
+              dialog.isOpen && React.createElement('div', {
+                  className: "fixed inset-0 z-[110] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+              }, React.createElement('div', {
+                  className: "bg-zinc-900 border border-zinc-800 rounded-2xl p-6 max-sm w-full flex flex-col shadow-2xl"
+              }, [
+                  React.createElement('h3', { className: "text-lg font-black text-white mb-2" }, dialog.title),
+                  React.createElement('p', { className: "text-zinc-400 text-sm mb-6" }, dialog.message),
+                  React.createElement('div', { className: "flex justify-end gap-3 mt-auto" }, [
+                      dialog.type === 'confirm' && React.createElement('button', {
+                          onClick: closeDialog,
+                          className: "px-4 py-2 rounded-lg text-sm font-bold text-zinc-400 hover:text-white transition"
+                      }, "Abbrechen"),
+                      React.createElement('button', {
+                          onClick: dialog.type === 'confirm' ? dialog.onConfirm : closeDialog,
+                          className: `${dialog.type === 'confirm' ? 'bg-red-600 hover:bg-red-500' : 'bg-indigo-600 hover:bg-indigo-500'} text-white px-6 py-2 rounded-xl text-sm font-bold shadow-lg transition`
+                      }, dialog.type === 'confirm' ? "Zurücksetzen" : "OK")
+                  ])
+              ]))
+            ])
+          );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(React.createElement(SocialCollageCreator));
+    </script>
+</body>
+</html>
